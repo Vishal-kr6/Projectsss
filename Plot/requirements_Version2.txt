@@ -1,0 +1,5 @@
+PyQt5>=5.15
+matplotlib>=3.6
+numpy
+pandas
+scipy
