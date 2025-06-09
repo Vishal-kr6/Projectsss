@@ -8,15 +8,15 @@ import matplotlib.font_manager as font_manager
 
 st.set_page_config(layout='wide', page_title="CSV Plotter")
 
-st.title("CSV Plotter and Grapher (Final Version)")
+st.title("CSV Plotter and Grapher (Final: abs() for log, real axis labels, fully featured)")
 
 csv_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
 def suggest_real_range(data):
     data = data.replace([np.inf, -np.inf], np.nan).dropna()
-    data_pos = data[data > 0]
-    if not data_pos.empty:
-        return float(data_pos.min()), float(data_pos.max())
+    data_nonzero = data[data != 0].abs()
+    if not data_nonzero.empty:
+        return float(data_nonzero.min()), float(data_nonzero.max())
     elif not data.empty:
         return float(abs(data.min())), float(abs(data.max()))
     else:
@@ -65,11 +65,11 @@ if csv_file is not None:
 
         st.subheader("Axis Range and Ticks")
 
-        # X range/ticks with dynamic suggestion
+        # X range/ticks
         x_data = df[x_col]
         if x_scale == "Logarithmic":
             x_min_suggest, x_max_suggest = suggest_real_range(x_data)
-            st.caption(f"X axis positive range: {x_min_suggest:.4g} to {x_max_suggest:.4g}")
+            st.caption(f"X axis abs(nonzero) range: {x_min_suggest:.4g} to {x_max_suggest:.4g}")
             x_min = st.number_input("X min (log scale, real value)", value=x_min_suggest, min_value=1e-12, format="%.4g", key="x_min")
             x_max = st.number_input("X max (log scale, real value)", value=x_max_suggest, min_value=x_min+1e-12, format="%.4g", key="x_max")
             x_ticks_count = st.number_input("Number of X ticks", min_value=2, max_value=50, value=10, step=1, key="x_ticks_count")
@@ -80,11 +80,11 @@ if csv_file is not None:
             x_max = st.number_input("X max", value=x_lin_max, min_value=x_min+1e-12, key="x_max_lin", format="%.4g")
             x_step = st.number_input("X step", value=max((x_lin_max-x_lin_min)/10, 1e-6), min_value=1e-8, format="%.4g", key="x_step_lin")
 
-        # Y range/ticks with dynamic suggestion
+        # Y range/ticks
         y_data = df[y_col]
         if y_scale == "Logarithmic":
             y_min_suggest, y_max_suggest = suggest_real_range(y_data)
-            st.caption(f"Y axis positive range: {y_min_suggest:.4g} to {y_max_suggest:.4g}")
+            st.caption(f"Y axis abs(nonzero) range: {y_min_suggest:.4g} to {y_max_suggest:.4g}")
             y_min = st.number_input("Y min (log scale, real value)", value=y_min_suggest, min_value=1e-12, format="%.4g", key="y_min")
             y_max = st.number_input("Y max (log scale, real value)", value=y_max_suggest, min_value=y_min+1e-12, format="%.4g", key="y_max")
             y_ticks_count = st.number_input("Number of Y ticks", min_value=2, max_value=50, value=10, step=1, key="y_ticks_count")
@@ -108,19 +108,27 @@ if csv_file is not None:
 
     # Main plot
     try:
+        # Always use abs for log axes, original for linear
         x = df[x_col].replace([np.inf, -np.inf], np.nan)
         y = df[y_col].replace([np.inf, -np.inf], np.nan)
-        # For log axes: drop non-positive values
         if x_scale == "Logarithmic":
-            x = x[x > 0]
+            x = x.abs()
         if y_scale == "Logarithmic":
-            y = y[y > 0]
-        # Align lengths
+            y = y.abs()
+        # Remove zeros for log axes
+        if x_scale == "Logarithmic":
+            mask = (x > 0)
+            x = x[mask]
+            y = y[mask]
+        if y_scale == "Logarithmic":
+            mask = (y > 0)
+            x = x[mask]
+            y = y[mask]
         min_len = min(len(x), len(y))
         x = x.iloc[:min_len]
         y = y.iloc[:min_len]
         if len(x) == 0 or len(y) == 0:
-            st.warning("No valid data to plot after processing for log/abs/zero.")
+            st.warning("No valid data to plot after abs() and removing zeros for logarithmic scale.")
             st.stop()
 
         fig, ax = plt.subplots(figsize=(plot_width, plot_height), dpi=120)
