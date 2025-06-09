@@ -2,27 +2,30 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter, ScalarFormatter
+from matplotlib.ticker import ScalarFormatter, FormatStrFormatter, FuncFormatter
 from io import BytesIO
 import matplotlib.font_manager as font_manager
 
 st.set_page_config(layout='wide', page_title="CSV Plotter")
 
-st.title("CSV Plotter and Grapher (Smart Range Suggestions)")
+st.title("CSV Plotter and Grapher (Final Version)")
 
 csv_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
-def log10_range(data):
+def suggest_real_range(data):
     data = data.replace([np.inf, -np.inf], np.nan).dropna()
-    data = data[data != 0].abs()
-    if data.empty:
-        return -1, 1
-    return float(np.log10(data.min())), float(np.log10(data.max()))
+    data_pos = data[data > 0]
+    if not data_pos.empty:
+        return float(data_pos.min()), float(data_pos.max())
+    elif not data.empty:
+        return float(abs(data.min())), float(abs(data.max()))
+    else:
+        return 0.001, 10.0
 
-def linear_range(data):
+def suggest_linear_range(data):
     data = data.replace([np.inf, -np.inf], np.nan).dropna()
     if data.empty:
-        return 0, 1
+        return 0.0, 1.0
     return float(data.min()), float(data.max())
 
 if csv_file is not None:
@@ -43,8 +46,12 @@ if csv_file is not None:
         plot_type = st.selectbox("Plot Type", ["Line", "Scatter", "Line + Scatter"], key="plt_type")
 
         st.subheader("Axis Scales (choose separately)")
-        x_scale = st.selectbox("X Axis Scale", ["Linear", "Logarithmic", "Probability"], key="x_scale")
-        y_scale = st.selectbox("Y Axis Scale", ["Linear", "Logarithmic", "Probability"], key="y_scale")
+        x_scale = st.selectbox("X Axis Scale", ["Linear", "Logarithmic"], key="x_scale")
+        y_scale = st.selectbox("Y Axis Scale", ["Linear", "Logarithmic"], key="y_scale")
+
+        st.subheader("Number Format")
+        x_tick_format = st.selectbox("X Axis Number Format", ["Default", "Scientific", "Decimal"], key="x_tick_fmt")
+        y_tick_format = st.selectbox("Y Axis Number Format", ["Default", "Scientific", "Decimal"], key="y_tick_fmt")
 
         st.subheader("Axis Labels")
         x_label = st.text_input("X Axis Label", value=x_col, key="x_label")
@@ -61,42 +68,32 @@ if csv_file is not None:
         # X range/ticks with dynamic suggestion
         x_data = df[x_col]
         if x_scale == "Logarithmic":
-            x_log_min, x_log_max = log10_range(x_data)
-            st.caption(f"X log10 range: {x_log_min:.3g} to {x_log_max:.3g} (values: {10**x_log_min:.3g} to {10**x_log_max:.3g})")
-            x_min_log = st.number_input("X min (log10)", value=x_log_min, key="x_min_log", format="%.4g")
-            x_max_log = st.number_input("X max (log10)", value=x_log_max, key="x_max_log", format="%.4g")
-            x_step_log = st.number_input("X step (log10)", value=max((x_log_max-x_log_min)/10, 0.1), min_value=1e-8, format="%.4g", key="x_step_log")
-        elif x_scale == "Probability":
-            st.caption("X probability range: 0.0 to 1.0")
-            x_min_lin = st.number_input("X min (probability)", value=0.0, min_value=0.0, max_value=1.0, key="x_min_prob")
-            x_max_lin = st.number_input("X max (probability)", value=1.0, min_value=0.0, max_value=1.0, key="x_max_prob")
-            x_step_lin = st.number_input("X step (probability)", value=0.1, min_value=1e-5, max_value=1.0, format="%.4g", key="x_step_prob")
+            x_min_suggest, x_max_suggest = suggest_real_range(x_data)
+            st.caption(f"X axis positive range: {x_min_suggest:.4g} to {x_max_suggest:.4g}")
+            x_min = st.number_input("X min (log scale, real value)", value=x_min_suggest, min_value=1e-12, format="%.4g", key="x_min")
+            x_max = st.number_input("X max (log scale, real value)", value=x_max_suggest, min_value=x_min+1e-12, format="%.4g", key="x_max")
+            x_ticks_count = st.number_input("Number of X ticks", min_value=2, max_value=50, value=10, step=1, key="x_ticks_count")
         else:
-            x_lin_min, x_lin_max = linear_range(x_data)
+            x_lin_min, x_lin_max = suggest_linear_range(x_data)
             st.caption(f"X range: {x_lin_min:.4g} to {x_lin_max:.4g}")
-            x_min_lin = st.number_input("X min", value=x_lin_min, key="x_min_lin", format="%.4g")
-            x_max_lin = st.number_input("X max", value=x_lin_max, key="x_max_lin", format="%.4g")
-            x_step_lin = st.number_input("X step", value=max((x_lin_max-x_lin_min)/10, 1e-6), min_value=1e-8, format="%.4g", key="x_step_lin")
+            x_min = st.number_input("X min", value=x_lin_min, key="x_min_lin", format="%.4g")
+            x_max = st.number_input("X max", value=x_lin_max, min_value=x_min+1e-12, key="x_max_lin", format="%.4g")
+            x_step = st.number_input("X step", value=max((x_lin_max-x_lin_min)/10, 1e-6), min_value=1e-8, format="%.4g", key="x_step_lin")
 
         # Y range/ticks with dynamic suggestion
         y_data = df[y_col]
         if y_scale == "Logarithmic":
-            y_log_min, y_log_max = log10_range(y_data)
-            st.caption(f"Y log10 range: {y_log_min:.3g} to {y_log_max:.3g} (values: {10**y_log_min:.3g} to {10**y_log_max:.3g})")
-            y_min_log = st.number_input("Y min (log10)", value=y_log_min, key="y_min_log", format="%.4g")
-            y_max_log = st.number_input("Y max (log10)", value=y_log_max, key="y_max_log", format="%.4g")
-            y_step_log = st.number_input("Y step (log10)", value=max((y_log_max-y_log_min)/10, 0.1), min_value=1e-8, format="%.4g", key="y_step_log")
-        elif y_scale == "Probability":
-            st.caption("Y probability range: 0.0 to 1.0")
-            y_min_lin = st.number_input("Y min (probability)", value=0.0, min_value=0.0, max_value=1.0, key="y_min_prob")
-            y_max_lin = st.number_input("Y max (probability)", value=1.0, min_value=0.0, max_value=1.0, key="y_max_prob")
-            y_step_lin = st.number_input("Y step (probability)", value=0.1, min_value=1e-5, max_value=1.0, format="%.4g", key="y_step_prob")
+            y_min_suggest, y_max_suggest = suggest_real_range(y_data)
+            st.caption(f"Y axis positive range: {y_min_suggest:.4g} to {y_max_suggest:.4g}")
+            y_min = st.number_input("Y min (log scale, real value)", value=y_min_suggest, min_value=1e-12, format="%.4g", key="y_min")
+            y_max = st.number_input("Y max (log scale, real value)", value=y_max_suggest, min_value=y_min+1e-12, format="%.4g", key="y_max")
+            y_ticks_count = st.number_input("Number of Y ticks", min_value=2, max_value=50, value=10, step=1, key="y_ticks_count")
         else:
-            y_lin_min, y_lin_max = linear_range(y_data)
+            y_lin_min, y_lin_max = suggest_linear_range(y_data)
             st.caption(f"Y range: {y_lin_min:.4g} to {y_lin_max:.4g}")
-            y_min_lin = st.number_input("Y min", value=y_lin_min, key="y_min_lin", format="%.4g")
-            y_max_lin = st.number_input("Y max", value=y_lin_max, key="y_max_lin", format="%.4g")
-            y_step_lin = st.number_input("Y step", value=max((y_lin_max-y_lin_min)/10, 1e-6), min_value=1e-8, format="%.4g", key="y_step_lin")
+            y_min = st.number_input("Y min", value=y_lin_min, key="y_min_lin", format="%.4g")
+            y_max = st.number_input("Y max", value=y_lin_max, min_value=y_min+1e-12, key="y_max_lin", format="%.4g")
+            y_step = st.number_input("Y step", value=max((y_lin_max-y_lin_min)/10, 1e-6), min_value=1e-8, format="%.4g", key="y_step_lin")
 
         st.subheader("Colors and Style")
         scatter_color = st.color_picker("Scatter color", "#1f77b4")
@@ -113,20 +110,15 @@ if csv_file is not None:
     try:
         x = df[x_col].replace([np.inf, -np.inf], np.nan)
         y = df[y_col].replace([np.inf, -np.inf], np.nan)
-        # Data for log axes: abs, mask zeros
+        # For log axes: drop non-positive values
         if x_scale == "Logarithmic":
-            x = x.abs()
-            mask_x = (x > 0)
-        else:
-            mask_x = pd.Series(True, index=x.index)
+            x = x[x > 0]
         if y_scale == "Logarithmic":
-            y = y.abs()
-            mask_y = (y > 0)
-        else:
-            mask_y = pd.Series(True, index=y.index)
-        mask = mask_x & mask_y
-        x = x[mask]
-        y = y[mask]
+            y = y[y > 0]
+        # Align lengths
+        min_len = min(len(x), len(y))
+        x = x.iloc[:min_len]
+        y = y.iloc[:min_len]
         if len(x) == 0 or len(y) == 0:
             st.warning("No valid data to plot after processing for log/abs/zero.")
             st.stop()
@@ -141,28 +133,50 @@ if csv_file is not None:
         # X axis
         if x_scale == "Logarithmic":
             ax.set_xscale("log")
-            ax.set_xlim(10**x_min_log, 10**x_max_log)
-            x_ticks = 10 ** np.arange(x_min_log, x_max_log + x_step_log, x_step_log)
+            ax.set_xlim(x_min, x_max)
+            x_ticks = np.logspace(np.log10(x_min), np.log10(x_max), int(x_ticks_count))
             ax.set_xticks(x_ticks)
-        elif x_scale == "Probability":
-            ax.set_xlim(x_min_lin, x_max_lin)
-            ax.set_xticks(np.arange(x_min_lin, x_max_lin + x_step_lin, x_step_lin))
+            if x_tick_format == "Scientific":
+                ax.xaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+                ax.xaxis.get_major_formatter().set_scientific(True)
+                ax.xaxis.get_major_formatter().set_powerlimits((-2, 2))
+            elif x_tick_format == "Decimal":
+                ax.xaxis.set_major_formatter(FormatStrFormatter('%.4f'))
+            else:
+                ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
         else:
-            ax.set_xlim(x_min_lin, x_max_lin)
-            ax.set_xticks(np.arange(x_min_lin, x_max_lin + x_step_lin, x_step_lin))
+            ax.set_xlim(x_min, x_max)
+            ax.set_xticks(np.arange(x_min, x_max + x_step, x_step))
+            if x_tick_format == "Scientific":
+                ax.xaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+                ax.xaxis.get_major_formatter().set_scientific(True)
+                ax.xaxis.get_major_formatter().set_powerlimits((-2, 2))
+            elif x_tick_format == "Decimal":
+                ax.xaxis.set_major_formatter(FormatStrFormatter('%.4f'))
 
         # Y axis
         if y_scale == "Logarithmic":
             ax.set_yscale("log")
-            ax.set_ylim(10**y_min_log, 10**y_max_log)
-            y_ticks = 10 ** np.arange(y_min_log, y_max_log + y_step_log, y_step_log)
+            ax.set_ylim(y_min, y_max)
+            y_ticks = np.logspace(np.log10(y_min), np.log10(y_max), int(y_ticks_count))
             ax.set_yticks(y_ticks)
-        elif y_scale == "Probability":
-            ax.set_ylim(y_min_lin, y_max_lin)
-            ax.set_yticks(np.arange(y_min_lin, y_max_lin + y_step_lin, y_step_lin))
+            if y_tick_format == "Scientific":
+                ax.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+                ax.yaxis.get_major_formatter().set_scientific(True)
+                ax.yaxis.get_major_formatter().set_powerlimits((-2, 2))
+            elif y_tick_format == "Decimal":
+                ax.yaxis.set_major_formatter(FormatStrFormatter('%.4f'))
+            else:
+                ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
         else:
-            ax.set_ylim(y_min_lin, y_max_lin)
-            ax.set_yticks(np.arange(y_min_lin, y_max_lin + y_step_lin, y_step_lin))
+            ax.set_ylim(y_min, y_max)
+            ax.set_yticks(np.arange(y_min, y_max + y_step, y_step))
+            if y_tick_format == "Scientific":
+                ax.yaxis.set_major_formatter(ScalarFormatter(useMathText=True))
+                ax.yaxis.get_major_formatter().set_scientific(True)
+                ax.yaxis.get_major_formatter().set_powerlimits((-2, 2))
+            elif y_tick_format == "Decimal":
+                ax.yaxis.set_major_formatter(FormatStrFormatter('%.4f'))
 
         # Plot
         if plot_type == "Line":
@@ -173,7 +187,6 @@ if csv_file is not None:
             ax.plot(x, y, color=line_color, linewidth=line_thickness, label='Line')
             ax.scatter(x, y, color=scatter_color, s=10, label='Scatter')
 
-        # Labels and style
         ax.set_xlabel(x_label, fontdict=fontdict)
         ax.set_ylabel(y_label, fontdict=fontdict)
         ax.tick_params(axis='both', which='major', labelsize=font_size)
