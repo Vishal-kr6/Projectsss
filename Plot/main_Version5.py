@@ -103,6 +103,14 @@ if csv_file is not None:
         fit_colors = ['black', 'red', 'blue', 'green', 'magenta', 'orange', 'cyan', 'purple', 'brown', 'grey']
 
         border_thickness = st.slider("Border thickness", 1, 5, 2)
+        # New options for user
+        scatter_size = st.slider("Scatter point size", 5, 100, 40)
+        fit_line_width = st.slider("Fitted line width", 1, 10, 2)
+        legend_loc = st.selectbox("Legend Position", [
+            "best", "upper right", "upper left", "lower left", "lower right",
+            "right", "center left", "center right", "lower center", "upper center", "center"
+        ], index=0)
+
         show_legend = st.checkbox("Show Legend", True)
 
         st.subheader("Plot Size")
@@ -200,7 +208,7 @@ if csv_file is not None:
             color = group_colors[i % len(group_colors)]
             fit_color = fit_colors[i % len(fit_colors)]
             # Scatter points
-            ax.scatter(xg, yg, color=color, marker=marker, s=40, label=f"{group}")
+            ax.scatter(xg, yg, color=color, marker=marker, s=scatter_size, label=f"{group}")
             # Fit line
             X_fit = np.log10(xg).values.reshape(-1, 1) if x_scale == "Logarithmic" else xg.values.reshape(-1, 1)
             y_fit = np.log10(yg).values if y_scale == "Logarithmic" else yg.values
@@ -219,7 +227,7 @@ if csv_file is not None:
                 y_plot = np.power(10, y_pred)
             else:
                 y_plot = y_pred
-            ax.plot(x_fit_range, y_plot, label=f"Linear Fit {group}", color=fit_color, linewidth=2)
+            ax.plot(x_fit_range, y_plot, label=f"Linear Fit {group}", color=fit_color, linewidth=fit_line_width)
             # R2 annotation: place near the data
             r2_x = xg.mean()
             r2_y = yg.max()
@@ -237,7 +245,8 @@ if csv_file is not None:
             spine.set_linewidth(border_thickness)
         ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.7)
         if show_legend:
-            ax.legend(loc="best", fontsize=font_size)
+            # place legend outside right, but flexible if not enough space
+            ax.legend(loc=legend_loc, fontsize=font_size, bbox_to_anchor=(1.01, 1), borderaxespad=0.) if legend_loc == "right" else ax.legend(loc=legend_loc, fontsize=font_size)
         plt.tight_layout(rect=[0.03, 0.03, 0.97, 0.97])
         st.pyplot(fig, use_container_width=True)
         img_buf = BytesIO()
