@@ -111,13 +111,9 @@ if csv_file is not None:
 
     # Main plot
     try:
-        # Always use abs for log axes, original for linear
-        x = df[x_col].replace([np.inf, -np.inf], np.nan)
-        y = df[y_col].replace([np.inf, -np.inf], np.nan)
-        group_vals = df[group_col].unique()
+        group_vals = df[group_col].dropna().unique()
         group_vals = sorted(group_vals)
 
-        # Filter for log
         def mask_log(x, y):
             mask = pd.Series([True]*len(x))
             if x_scale == "Logarithmic":
@@ -182,25 +178,29 @@ if csv_file is not None:
                 ax.yaxis.set_major_formatter(FormatStrFormatter('%.4f'))
 
         # Plot points and fit for each group
-        legend_handles = []
         for i, group in enumerate(group_vals):
             dfg = df[df[group_col] == group]
-            xg = dfg[x_col].replace([np.inf, -np.inf], np.nan)
-            yg = dfg[y_col].replace([np.inf, -np.inf], np.nan)
-            # For log, use abs and filter >0
+            # Drop rows with NA in x or y
+            dfg = dfg[[x_col, y_col]].replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
+            if dfg.empty:
+                continue
+            xg = dfg[x_col]
+            yg = dfg[y_col]
             if x_scale == "Logarithmic":
                 xg = xg.abs()
             if y_scale == "Logarithmic":
                 yg = yg.abs()
+            # After abs, mask for >0 if log
             mask = mask_log(xg, yg)
-            xg, yg = xg[mask], yg[mask]
+            xg = xg[mask].reset_index(drop=True)
+            yg = yg[mask].reset_index(drop=True)
             if len(xg) == 0 or len(yg) == 0:
                 continue
             marker = group_markers[i % len(group_markers)]
             color = group_colors[i % len(group_colors)]
             fit_color = fit_colors[i % len(fit_colors)]
             # Scatter points
-            handle = ax.scatter(xg, yg, color=color, marker=marker, s=40, label=f"{group}")
+            ax.scatter(xg, yg, color=color, marker=marker, s=40, label=f"{group}")
             # Fit line
             X_fit = np.log10(xg).values.reshape(-1, 1) if x_scale == "Logarithmic" else xg.values.reshape(-1, 1)
             y_fit = np.log10(yg).values if y_scale == "Logarithmic" else yg.values
@@ -219,7 +219,7 @@ if csv_file is not None:
                 y_plot = np.power(10, y_pred)
             else:
                 y_plot = y_pred
-            fit_handle, = ax.plot(x_fit_range, y_plot, label=f"Linear Fit {group}", color=fit_color, linewidth=2)
+            ax.plot(x_fit_range, y_plot, label=f"Linear Fit {group}", color=fit_color, linewidth=2)
             # R2 annotation: place near the data
             r2_x = xg.mean()
             r2_y = yg.max()
