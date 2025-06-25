@@ -5,10 +5,12 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import ScalarFormatter, FormatStrFormatter, FuncFormatter
 from io import BytesIO
 import matplotlib.font_manager as font_manager
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
 
 st.set_page_config(layout='wide', page_title="CSV Plotter")
 
-st.title("CSV Plotter and Grapher (Final: abs() for log, real axis labels, fully featured)")
+st.title("CSV Plotter and Grapher: Multi-Fit with R² for Groups")
 
 csv_file = st.file_uploader("Upload your CSV file", type=["csv"])
 
@@ -34,8 +36,8 @@ if csv_file is not None:
     st.dataframe(df.head())
 
     columns = list(df.columns)
-    if len(columns) < 2:
-        st.warning("CSV must have at least two columns.")
+    if len(columns) < 3:
+        st.warning("CSV must have at least three columns: X, Y, and Group (e.g. temperature).")
         st.stop()
 
     with st.sidebar:
@@ -43,7 +45,7 @@ if csv_file is not None:
 
         x_col = st.selectbox("X column", columns, key="x_col")
         y_col = st.selectbox("Y column", columns, index=1 if len(columns) > 1 else 0, key="y_col")
-        plot_type = st.selectbox("Plot Type", ["Line", "Scatter", "Line + Scatter"], key="plt_type")
+        group_col = st.selectbox("Group column (e.g. temperature)", [c for c in columns if c not in [x_col, y_col]], key="group_col")
 
         st.subheader("Axis Scales (choose separately)")
         x_scale = st.selectbox("X Axis Scale", ["Linear", "Logarithmic"], key="x_scale")
@@ -96,9 +98,10 @@ if csv_file is not None:
             y_step = st.number_input("Y step", value=max((y_lin_max-y_lin_min)/10, 1e-6), min_value=1e-8, format="%.4g", key="y_step_lin")
 
         st.subheader("Colors and Style")
-        scatter_color = st.color_picker("Scatter color", "#1f77b4")
-        line_color = st.color_picker("Line color", "#ff7f0e")
-        line_thickness = st.slider("Line thickness", 1, 10, 2)
+        group_markers = ['o', '^', 's', 'D', 'X', 'v', 'P', '*', '<', '>', 'H']
+        group_colors = ['black', 'red', 'blue', 'green', 'magenta', 'orange', 'cyan', 'purple', 'brown', 'grey']
+        fit_colors = ['black', 'red', 'blue', 'green', 'magenta', 'orange', 'cyan', 'purple', 'brown', 'grey']
+
         border_thickness = st.slider("Border thickness", 1, 5, 2)
         show_legend = st.checkbox("Show Legend", True)
 
@@ -111,25 +114,17 @@ if csv_file is not None:
         # Always use abs for log axes, original for linear
         x = df[x_col].replace([np.inf, -np.inf], np.nan)
         y = df[y_col].replace([np.inf, -np.inf], np.nan)
-        if x_scale == "Logarithmic":
-            x = x.abs()
-        if y_scale == "Logarithmic":
-            y = y.abs()
-        # Remove zeros for log axes
-        if x_scale == "Logarithmic":
-            mask = (x > 0)
-            x = x[mask]
-            y = y[mask]
-        if y_scale == "Logarithmic":
-            mask = (y > 0)
-            x = x[mask]
-            y = y[mask]
-        min_len = min(len(x), len(y))
-        x = x.iloc[:min_len]
-        y = y.iloc[:min_len]
-        if len(x) == 0 or len(y) == 0:
-            st.warning("No valid data to plot after abs() and removing zeros for logarithmic scale.")
-            st.stop()
+        group_vals = df[group_col].unique()
+        group_vals = sorted(group_vals)
+
+        # Filter for log
+        def mask_log(x, y):
+            mask = pd.Series([True]*len(x))
+            if x_scale == "Logarithmic":
+                mask = mask & (x.abs() > 0)
+            if y_scale == "Logarithmic":
+                mask = mask & (y.abs() > 0)
+            return mask
 
         fig, ax = plt.subplots(figsize=(plot_width, plot_height), dpi=120)
         fontdict = {
@@ -186,14 +181,53 @@ if csv_file is not None:
             elif y_tick_format == "Decimal":
                 ax.yaxis.set_major_formatter(FormatStrFormatter('%.4f'))
 
-        # Plot
-        if plot_type == "Line":
-            ax.plot(x, y, color=line_color, linewidth=line_thickness, label=f'{y_col} vs {x_col}')
-        elif plot_type == "Scatter":
-            ax.scatter(x, y, color=scatter_color, s=10, label=f'{y_col} vs {x_col}')
-        else:
-            ax.plot(x, y, color=line_color, linewidth=line_thickness, label='Line')
-            ax.scatter(x, y, color=scatter_color, s=10, label='Scatter')
+        # Plot points and fit for each group
+        legend_handles = []
+        for i, group in enumerate(group_vals):
+            dfg = df[df[group_col] == group]
+            xg = dfg[x_col].replace([np.inf, -np.inf], np.nan)
+            yg = dfg[y_col].replace([np.inf, -np.inf], np.nan)
+            # For log, use abs and filter >0
+            if x_scale == "Logarithmic":
+                xg = xg.abs()
+            if y_scale == "Logarithmic":
+                yg = yg.abs()
+            mask = mask_log(xg, yg)
+            xg, yg = xg[mask], yg[mask]
+            if len(xg) == 0 or len(yg) == 0:
+                continue
+            marker = group_markers[i % len(group_markers)]
+            color = group_colors[i % len(group_colors)]
+            fit_color = fit_colors[i % len(fit_colors)]
+            # Scatter points
+            handle = ax.scatter(xg, yg, color=color, marker=marker, s=40, label=f"{group}")
+            # Fit line
+            X_fit = np.log10(xg).values.reshape(-1, 1) if x_scale == "Logarithmic" else xg.values.reshape(-1, 1)
+            y_fit = np.log10(yg).values if y_scale == "Logarithmic" else yg.values
+            reg = LinearRegression().fit(X_fit, y_fit)
+            # Create fit line in original scale
+            x_fit_range = np.linspace(xg.min(), xg.max(), 100)
+            if x_scale == "Logarithmic":
+                X_plot = np.log10(x_fit_range).reshape(-1, 1)
+            else:
+                X_plot = x_fit_range.reshape(-1, 1)
+            y_pred = reg.predict(X_plot)
+            # R2 value
+            y_pred_data = reg.predict(X_fit)
+            r2 = r2_score(y_fit, y_pred_data)
+            if y_scale == "Logarithmic":
+                y_plot = np.power(10, y_pred)
+            else:
+                y_plot = y_pred
+            fit_handle, = ax.plot(x_fit_range, y_plot, label=f"Linear Fit {group}", color=fit_color, linewidth=2)
+            # R2 annotation: place near the data
+            r2_x = xg.mean()
+            r2_y = yg.max()
+            ax.text(
+                r2_x, r2_y, f"$R^2$={r2:.5f}",
+                color=fit_color, fontsize=font_size, fontweight="bold",
+                fontname=font_family
+            )
 
         ax.set_xlabel(x_label, fontdict=fontdict)
         ax.set_ylabel(y_label, fontdict=fontdict)
