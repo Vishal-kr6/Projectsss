@@ -66,8 +66,6 @@ if csv_file is not None:
         font_weight = st.checkbox("Bold Axis Labels", False, key="font_weight")
 
         st.subheader("Axis Range and Ticks")
-
-        # X range/ticks
         x_data = df[x_col]
         if x_scale == "Logarithmic":
             x_min_suggest, x_max_suggest = suggest_real_range(x_data)
@@ -82,7 +80,6 @@ if csv_file is not None:
             x_max = st.number_input("X max", value=x_lin_max, min_value=x_min+1e-12, key="x_max_lin", format="%.4g")
             x_step = st.number_input("X step", value=max((x_lin_max-x_lin_min)/10, 1e-6), min_value=1e-8, format="%.4g", key="x_step_lin")
 
-        # Y range/ticks
         y_data = df[y_col]
         if y_scale == "Logarithmic":
             y_min_suggest, y_max_suggest = suggest_real_range(y_data)
@@ -101,16 +98,22 @@ if csv_file is not None:
         group_markers = ['o', '^', 's', 'D', 'X', 'v', 'P', '*', '<', '>', 'H']
         group_colors = ['black', 'red', 'blue', 'green', 'magenta', 'orange', 'cyan', 'purple', 'brown', 'grey']
         fit_colors = ['black', 'red', 'blue', 'green', 'magenta', 'orange', 'cyan', 'purple', 'brown', 'grey']
-
         border_thickness = st.slider("Border thickness", 1, 5, 2)
-        # New options for user
         scatter_size = st.slider("Scatter point size", 5, 100, 40)
         fit_line_width = st.slider("Fitted line width", 1, 10, 2)
+
+        st.subheader("Legend Box")
         legend_loc = st.selectbox("Legend Position", [
             "best", "upper right", "upper left", "lower left", "lower right",
             "right", "center left", "center right", "lower center", "upper center", "center"
         ], index=0)
-
+        legend_fontsize = st.slider("Legend font size", 8, 32, 14)
+        legend_borderpad = st.slider("Legend border padding", 0.0, 3.0, 1.2, 0.1)
+        legend_labelspacing = st.slider("Legend label spacing", 0.2, 2.0, 0.5, 0.05)
+        legend_handlelength = st.slider("Legend handle length", 0.5, 5.0, 2.0, 0.1)
+        legend_handletextpad = st.slider("Legend handle-text pad", 0.1, 2.0, 1.0, 0.1)
+        legend_borderaxespad = st.slider("Legend border-axes pad", 0.0, 2.0, 1.0, 0.1)
+        legend_column = st.number_input("Legend columns", min_value=1, max_value=5, value=1)
         show_legend = st.checkbox("Show Legend", True)
 
         st.subheader("Plot Size")
@@ -188,7 +191,6 @@ if csv_file is not None:
         # Plot points and fit for each group
         for i, group in enumerate(group_vals):
             dfg = df[df[group_col] == group]
-            # Drop rows with NA in x or y
             dfg = dfg[[x_col, y_col]].replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
             if dfg.empty:
                 continue
@@ -198,7 +200,6 @@ if csv_file is not None:
                 xg = xg.abs()
             if y_scale == "Logarithmic":
                 yg = yg.abs()
-            # After abs, mask for >0 if log
             mask = mask_log(xg, yg)
             xg = xg[mask].reset_index(drop=True)
             yg = yg[mask].reset_index(drop=True)
@@ -207,20 +208,16 @@ if csv_file is not None:
             marker = group_markers[i % len(group_markers)]
             color = group_colors[i % len(group_colors)]
             fit_color = fit_colors[i % len(fit_colors)]
-            # Scatter points
             ax.scatter(xg, yg, color=color, marker=marker, s=scatter_size, label=f"{group}")
-            # Fit line
             X_fit = np.log10(xg).values.reshape(-1, 1) if x_scale == "Logarithmic" else xg.values.reshape(-1, 1)
             y_fit = np.log10(yg).values if y_scale == "Logarithmic" else yg.values
             reg = LinearRegression().fit(X_fit, y_fit)
-            # Create fit line in original scale
             x_fit_range = np.linspace(xg.min(), xg.max(), 100)
             if x_scale == "Logarithmic":
                 X_plot = np.log10(x_fit_range).reshape(-1, 1)
             else:
                 X_plot = x_fit_range.reshape(-1, 1)
             y_pred = reg.predict(X_plot)
-            # R2 value
             y_pred_data = reg.predict(X_fit)
             r2 = r2_score(y_fit, y_pred_data)
             if y_scale == "Logarithmic":
@@ -228,7 +225,6 @@ if csv_file is not None:
             else:
                 y_plot = y_pred
             ax.plot(x_fit_range, y_plot, label=f"Linear Fit {group}", color=fit_color, linewidth=fit_line_width)
-            # R2 annotation: place near the data
             r2_x = xg.mean()
             r2_y = yg.max()
             ax.text(
@@ -245,8 +241,23 @@ if csv_file is not None:
             spine.set_linewidth(border_thickness)
         ax.grid(True, linestyle='--', linewidth=0.5, alpha=0.7)
         if show_legend:
-            # place legend outside right, but flexible if not enough space
-            ax.legend(loc=legend_loc, fontsize=font_size, bbox_to_anchor=(1.01, 1), borderaxespad=0.) if legend_loc == "right" else ax.legend(loc=legend_loc, fontsize=font_size)
+            legend_args = dict(
+                loc=legend_loc,
+                fontsize=legend_fontsize,
+                borderpad=legend_borderpad,
+                labelspacing=legend_labelspacing,
+                handlelength=legend_handlelength,
+                handletextpad=legend_handletextpad,
+                borderaxespad=legend_borderaxespad,
+                ncol=legend_column,
+                fancybox=True,
+                framealpha=0.9
+            )
+            # If right, place outside
+            if legend_loc == "right":
+                ax.legend(bbox_to_anchor=(1.01, 1), **legend_args)
+            else:
+                ax.legend(**legend_args)
         plt.tight_layout(rect=[0.03, 0.03, 0.97, 0.97])
         st.pyplot(fig, use_container_width=True)
         img_buf = BytesIO()
